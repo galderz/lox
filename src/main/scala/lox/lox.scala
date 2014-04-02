@@ -15,6 +15,7 @@ val cmdargs = args.toList
 cmdargs match {
   case Nil =>
     println("Run Lox test suite")
+
   case x::xs =>
     x match {
       case "clear" =>
@@ -23,15 +24,8 @@ cmdargs match {
             a <- env.clean(Array(""))
           } yield a
 
-        // Improvement:
-        // Pass in a System which executes a Recipe, and returns something
-        // That something is what's returned from Maven()
-        // In the case of dummy, it'd return the executed commands
-        // In the case of OS one, nothing
-
-        Maven(program)
-        //println(DummySystem.log.mkString(" "))
-        //program.collect(exe.apply[Environment[A]])
+        Maven(program, DummySystem)
+        println(DummySystem())
     }
 }
 
@@ -47,7 +41,7 @@ cmdargs match {
 // Supporting classes - Environment
 
 type Recipe = Array[String]
-type Instructions = List[Recipe]
+type Instructions = Seq[String]
 
 sealed trait EnvironmentF[+A]
 
@@ -80,12 +74,10 @@ object Environment {
 
 object Maven {
   import Environment._
-  // import Process.process
 
-  private def execute(recipe: Recipe): Unit = {}
-//    if (!dry) OperativeSystem(process.execute(recipe))
-//    else DummySystem(process.execute(recipe))
+  var process: Process = _
 
+  private def execute(recipe: Recipe): Unit = process.execute(recipe)
   private def clean(recipe: Recipe): Unit = execute(Array("mvn", "clean"))
   private def build(recipe: Recipe): Unit = execute(Array("mvn", "-Dmaven.test.skip.exec=true", "install"))
   private def test(recipe: Recipe): Unit = execute(Array("mvn", "install"))
@@ -98,28 +90,26 @@ object Maven {
     }
   }
 
-  def apply[A](log: Environment[A]): A = {
+  def apply[A](log: Environment[A], process: Process): A = {
+    this.process = process
     log.runM(exe.apply[Environment[A]])
   }
-
 
 }
 
 // Supporting classes - Process execution
 
-trait Process[R] {
-  def execute(recipe: Recipe): R
+trait Process {
+  def execute(recipe: Recipe): Unit
 }
 
-object DummySystem extends Process[Instructions] {
-  var executed = new ListBuffer[Recipe]
-  override def execute(recipe: Recipe): Instructions = {
-    executed += recipe
-    executed.toList
-  }
+object DummySystem extends Process {
+  private var executed = new ListBuffer[String]
+  override def execute(recipe: Recipe): Unit = executed += recipe.mkString(" ")
+  def apply(): Instructions = executed.toList
 }
 
-object OperativeSystem extends Process[Unit] {
+object OperativeSystem extends Process {
   override def execute(recipe: Recipe): Unit = {
       val builder = new ProcessBuilder(recipe : _*)
       builder.redirectErrorStream(true)
@@ -164,106 +154,3 @@ object OperativeSystem extends Process[Unit] {
       }
     }
 }
-
-
-//sealed trait ProcessF[+A]
-//
-//type Recipe = Array[String]
-//
-//object Process {
-//  type Process[A] = Free[ProcessF, A]
-//
-//  implicit def processFFunctor[B]: Functor[ProcessF] = new Functor[ProcessF]{
-//    def map[A,B](fa: ProcessF[A])(f: A => B): ProcessF[B] =
-//      fa match {
-//        case Execute(msg,a) => Execute(msg,f(a))
-//      }
-//  }
-//
-//  implicit def processFToFree[A](logf: ProcessF[A]): Free[ProcessF,A] =
-//    Suspend[ProcessF, A](Functor[ProcessF].map(logf)(a => Return[ProcessF, A](a)))
-//
-//  case class Execute[A](recipe: Recipe, o: A) extends ProcessF[A]
-//
-//  object process {
-//    def execute(recipe: Recipe): Process[Unit] = Execute(recipe, ())
-//  }
-//}
-//
-//object DummySystem {
-//  import Process._
-//
-//  val log = new ListBuffer[String]
-//
-//  private def execute(recipe: Recipe): Unit = {
-//    log += recipe.mkString(" ")
-//  }
-//
-//  private val exe: ProcessF ~> Id = new (ProcessF ~> Id) {
-//    def apply[B](l: ProcessF[B]): B = l match {
-//      case Execute(recipe,a) => { execute(recipe); a }
-//    }
-//  }
-//
-//  def apply[A](log: Process[A]): A =
-//    log.runM(exe.apply[Process[A]])
-//
-//}
-//
-//object OperativeSystem {
-//  import Process._
-//
-//  private def execute(recipe: Recipe): Unit = {
-//    val builder = new ProcessBuilder(recipe : _*)
-//    builder.redirectErrorStream(true)
-//    val process = builder.start()
-//    val stdout = process.getInputStream
-//    val consoleConsumer = new ConsoleConsumer(stdout, java.lang.System.out)
-//    val outThread = new Thread(consoleConsumer, "System")
-//    outThread.start()
-//
-//    try {
-//      process.waitFor()
-//    } catch {
-//      case _: InterruptedException => process.destroy()
-//    }
-//
-//    // This ensures that all output is complete
-//    // before returning (waitFor does not ensure this)
-//    outThread.join()
-//
-//    if (process.exitValue() != 0)
-//      throw new Exception(s"[$recipe] execution failed in ${builder.directory()}")
-//  }
-//
-//  private val exe: ProcessF ~> Id = new (ProcessF ~> Id) {
-//    def apply[B](l: ProcessF[B]): B = l match {
-//      case Execute(recipe,a) => { execute(recipe); a }
-//    }
-//  }
-//
-//  def apply[A](log: Process[A]): A =
-//    log.runM(exe.apply[Process[A]])
-//
-//  private class ConsoleConsumer(source: InputStream, target: PrintStream) extends Runnable {
-//    def run() {
-//      val source = this.source
-//      try {
-//        val buf = new Array[Byte](32)
-//        // Do not try reading a line cos it considers '\r' end of line
-//        var reading = true
-//        while (reading) {
-//          source.read(buf) match {
-//            case -1 => reading = false
-//            case c => target.write(buf, 0, c)
-//          }
-//        }
-//      } catch {
-//        case e: IOException => e.printStackTrace(target)
-//      } finally {
-//        source.close()
-//      }
-//    }
-//  }
-//
-//}
